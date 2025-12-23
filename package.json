@@ -1,0 +1,38 @@
+{
+  "name": "psyche-signals",
+  "version": "3.0.0",
+  "description": "Real-time behavioral signals for adaptive UX",
+  "type": "module",
+  "main": "dist/psyche.cjs.js",
+  "module": "dist/psyche.esm.js",
+  "unpkg": "dist/psyche.umd.js",
+  "exports": {
+    ".": {
+      "import": "./dist/psyche.esm.js",
+      "require": "./dist/psyche.cjs.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ux",
+    "behavior",
+    "intent",
+    "analytics",
+    "affective-computing",
+    "cursor-tracking",
+    "signals"
+  ],
+  "author": "Walter Sandoval",
+  "license": "MIT",
+  "devDependencies": {
+    "rollup": "^4.9.0",
+    "@rollup/plugin-node-resolve": "^15.2.3"
+  }
+}
