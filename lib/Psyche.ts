@@ -103,7 +103,7 @@ export class Psyche {
 
     this.timer = window.setInterval(() => this.analyze(), this.config.interval);
     
-    if (this.config.debug) console.log(`Psyche Neural Engine v3.5 Started (Privacy: ${this.config.privacyMode})`);
+    if (this.config.debug) console.log(`Psyche Adaptive Statistical Engine v3.5 Started (Privacy: ${this.config.privacyMode})`);
   }
 
   public destroy() {

@@ -196,7 +196,7 @@ const App: React.FC = () => {
                 <div>
                    <h3 className="text-4xl font-black text-white mb-4">Instalación <span className="text-blue-500">Instantánea</span></h3>
                    <p className="text-lg text-slate-400 leading-relaxed">
-                     Integra el motor neural en tu proyecto en menos de 30 segundos. Compatible con cualquier framework moderno o vanilla JS.
+                     Integra el Adaptive Statistical Engine en tu proyecto en menos de 30 segundos. Compatible con cualquier framework moderno o vanilla JS.
                    </p>
                 </div>
 
