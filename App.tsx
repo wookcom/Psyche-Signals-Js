@@ -4,16 +4,18 @@ import NeuralLab from './components/NeuralLab';
 import Concepts from './components/Concepts'; 
 import UserStates from './components/UserStates'; 
 import ApiReference from './components/ApiReference'; 
-import UseCases from './components/UseCases'; // Import new component
+import UseCases from './components/UseCases';
 import CodeBlock from './components/CodeBlock';
+import LiveDemo from './components/LiveDemo';
 import { Psyche } from './lib/Psyche'; 
 import { PsycheMetrics, UserState, MicroIntention, InputType } from './types';
-import { ShieldCheck, Layers, Brain, ArrowRight, Github, Activity, Terminal, Globe, Package, CheckCircle2, Box } from 'lucide-react';
+import { ShieldCheck, Layers, Brain, ArrowRight, Github, Activity, Terminal, Globe, Package, CheckCircle2, Box, Play } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeSection, setActiveSection] = useState<string>('intro');
   const [privacyMode, setPrivacyMode] = useState<boolean>(false);
   const [installTab, setInstallTab] = useState<'npm' | 'pnpm' | 'cdn'>('npm');
+  const [showDemo, setShowDemo] = useState<boolean>(false);
   
   // UI State synced with Engine
   const [metrics, setMetrics] = useState<PsycheMetrics>({ 
@@ -104,6 +106,10 @@ const App: React.FC = () => {
     }
   };
 
+  if (showDemo) {
+    return <LiveDemo onBack={() => setShowDemo(false)} />;
+  }
+
   return (
     <div className="flex flex-col md:flex-row h-screen bg-slate-950 text-slate-200 font-sans selection:bg-blue-500/30 selection:text-blue-200">
       
@@ -168,6 +174,14 @@ const App: React.FC = () => {
                             Comenzar Ahora 
                             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform"/>
                         </span>
+                    </button>
+
+                    <button 
+                        onClick={() => setShowDemo(true)}
+                        className="px-8 py-4 bg-white text-slate-900 rounded-2xl font-bold transition-all shadow-xl hover:bg-slate-50 flex items-center gap-2 hover:-translate-y-1"
+                    >
+                        <Play className="w-4 h-4 text-blue-600 fill-current" />
+                        Ver Demo Interactiva
                     </button>
                     
                     <a 
