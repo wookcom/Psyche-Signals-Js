@@ -171,7 +171,7 @@ const App: React.FC = () => {
                     </button>
                     
                     <a 
-                        href="https://github.com/psychejs/core" 
+                        href="https://github.com/wookcom/Psyche-Signals-Js" 
                         target="_blank" 
                         rel="noreferrer" 
                         className="px-8 py-4 bg-transparent hover:bg-slate-900/50 text-slate-300 hover:text-white rounded-2xl font-bold transition-all border border-slate-800 hover:border-slate-600 flex items-center gap-2 group"

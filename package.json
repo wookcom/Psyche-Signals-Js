@@ -1,11 +1,15 @@
 {
   "name": "psyche-signals",
-  "version": "3.0.0",
+  "version": "3.5.0",
   "description": "Real-time behavioral signals for adaptive UX",
   "type": "module",
   "main": "dist/psyche.cjs.js",
   "module": "dist/psyche.esm.js",
   "unpkg": "dist/psyche.umd.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wookcom/Psyche-Signals-Js.git"
+  },
   "exports": {
     ".": {
       "import": "./dist/psyche.esm.js",

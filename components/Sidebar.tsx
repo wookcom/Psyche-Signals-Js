@@ -48,7 +48,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, currentState, metrics 
           <h1 className="text-xl font-bold tracking-tighter leading-none text-white">
             Psyche <span className="text-blue-500">Signals</span>
           </h1>
-          <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mt-1">v3.0.8 Adaptive Statistical Engine</p>
+          <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mt-1">v3.5.0 Adaptive Statistical Engine</p>
         </div>
       </div>
 
