@@ -3,6 +3,7 @@ export interface MousePoint {
   x: number;
   y: number;
   t: number;
+  force?: number; // Touch pressure (0.0 - 1.0)
 }
 
 export interface PsycheElement {
@@ -10,6 +11,8 @@ export interface PsycheElement {
   id?: string;
   className?: string;
   interactive: boolean;
+  isSignificant: boolean; // True if matches business logic selectors (e.g. .buy-button)
+  isInShadow: boolean;    // True if found inside a Shadow DOM
 }
 
 export interface ClickPoint {
@@ -39,7 +42,13 @@ export enum MicroIntention {
   SCROLL_FATIGUE = 'SCROLL_FATIGUE' // (Reserved for future)
 }
 
+export enum InputType {
+  MOUSE = 'MOUSE',
+  TOUCH = 'TOUCH'
+}
+
 export interface PsycheMetrics {
+  inputType: InputType;  // Device type
   velocity: number;      // px/ms
   entropy: number;       // 0-1 (Chaos factor)
   jerk: number;          // Change in acceleration
@@ -47,6 +56,10 @@ export interface PsycheMetrics {
   interactionRate: number; // events/sec (clicks + keys)
   selectionActivity: number; // selection changes/sec
   pauseDuration: number; // ms the pointer has been idle
+  
+  // Touch Specific
+  touchPressure: number; // 0.0 to 1.0 (if available)
+  rageTaps: number;      // Count of rapid taps in same area
   
   // Object Detection
   currentElement: PsycheElement | null;
@@ -84,6 +97,8 @@ export interface PsycheConfig {
   debug?: boolean;
   useAI?: boolean;       // Enable adaptive learning
   learningSamples?: number; // How many ticks to calibrate (default: 50)
+  privacyMode?: boolean; // Enable GDPR/CCPA compliance (Anonymize coordinates)
+  significantSelectors?: string[]; // Selectors for business-critical elements
 }
 
 export type PsycheEvent = 'metrics' | 'stateChange' | 'intention';

@@ -1,5 +1,5 @@
 
-import { PsycheConfig, PsycheMetrics, UserState, MousePoint, PsycheEventListener, PsycheEvent, PsycheElement, PsycheBaseline, MicroIntention } from '../types';
+import { PsycheConfig, PsycheMetrics, UserState, MousePoint, PsycheEventListener, PsycheEvent, PsycheElement, PsycheBaseline, MicroIntention, InputType } from '../types';
 
 export class Psyche {
   private config: PsycheConfig;
@@ -14,6 +14,11 @@ export class Psyche {
   private focusTimer: number = 0;
   private lastFocusedSignature: string = '';
 
+  // Touch Tracking
+  private lastTapTime: number = 0;
+  private lastTapLoc: { x: number, y: number } = { x: 0, y: 0 };
+  private rageTapCounter: number = 0;
+
   // AI / Statistical Learning State
   private stats = {
     velSum: 0, velSqSum: 0,
@@ -23,6 +28,7 @@ export class Psyche {
   };
 
   private metrics: PsycheMetrics = {
+    inputType: InputType.MOUSE,
     velocity: 0,
     entropy: 0,
     jerk: 0,
@@ -30,6 +36,8 @@ export class Psyche {
     interactionRate: 0,
     selectionActivity: 0,
     pauseDuration: 0,
+    touchPressure: 0,
+    rageTaps: 0,
     currentElement: null,
     predictedElement: null,
     lastClick: null,
@@ -52,6 +60,8 @@ export class Psyche {
 
   // Bound Event Handlers
   private handleMouseMoveBound = this.handleMouseMove.bind(this);
+  private handleTouchMoveBound = this.handleTouchMove.bind(this);
+  private handleTouchStartBound = this.handleTouchStart.bind(this);
   private handleInteractionBound = this.handleInteraction.bind(this);
   private handleClickBound = this.handleClick.bind(this);
   private handleSelectionBound = this.handleSelection.bind(this);
@@ -65,6 +75,8 @@ export class Psyche {
       debug: false,
       useAI: true,
       learningSamples: 30, // Approx 3 seconds to calibrate @ 100ms interval
+      privacyMode: false,
+      significantSelectors: ['button', 'a', 'input[type="submit"]', '.cta', '[role="button"]'],
       ...config
     };
 
@@ -74,9 +86,16 @@ export class Psyche {
   private init() {
     if (typeof window === 'undefined') return;
 
+    // Mouse Listeners
     window.addEventListener('mousemove', this.handleMouseMoveBound);
-    window.addEventListener('keydown', this.handleInteractionBound);
     window.addEventListener('click', this.handleClickBound);
+    
+    // Touch Listeners
+    window.addEventListener('touchmove', this.handleTouchMoveBound, { passive: true });
+    window.addEventListener('touchstart', this.handleTouchStartBound, { passive: true });
+
+    // General Interaction
+    window.addEventListener('keydown', this.handleInteractionBound);
     document.addEventListener('selectionchange', this.handleSelectionBound);
 
     const scrollTarget = this.config.scrollElement || window;
@@ -84,15 +103,17 @@ export class Psyche {
 
     this.timer = window.setInterval(() => this.analyze(), this.config.interval);
     
-    if (this.config.debug) console.log('Psyche Neural Engine v3.2 Started');
+    if (this.config.debug) console.log(`Psyche Neural Engine v3.5 Started (Privacy: ${this.config.privacyMode})`);
   }
 
   public destroy() {
     if (typeof window === 'undefined') return;
 
     window.removeEventListener('mousemove', this.handleMouseMoveBound);
-    window.removeEventListener('keydown', this.handleInteractionBound);
     window.removeEventListener('click', this.handleClickBound);
+    window.removeEventListener('touchmove', this.handleTouchMoveBound);
+    window.removeEventListener('touchstart', this.handleTouchStartBound);
+    window.removeEventListener('keydown', this.handleInteractionBound);
     document.removeEventListener('selectionchange', this.handleSelectionBound);
     
     const scrollTarget = this.config.scrollElement || window;
@@ -102,8 +123,48 @@ export class Psyche {
   }
 
   private handleMouseMove(e: MouseEvent) {
+    this.metrics.inputType = InputType.MOUSE;
+    this.metrics.touchPressure = 0;
+    this.pushHistory(e.clientX, e.clientY);
+  }
+
+  private handleTouchMove(e: TouchEvent) {
+    if (e.touches.length > 0) {
+      this.metrics.inputType = InputType.TOUCH;
+      const t = e.touches[0];
+      // Normalize pressure: force (0-1) is ideal, standard varies by device
+      this.metrics.touchPressure = t.force || 0.5; 
+      this.pushHistory(t.clientX, t.clientY, t.force);
+    }
+  }
+
+  private handleTouchStart(e: TouchEvent) {
+      this.metrics.inputType = InputType.TOUCH;
+      this.handleInteraction();
+      
+      if (e.touches.length > 0) {
+          const t = e.touches[0];
+          
+          // Rage Tap Logic
+          const now = Date.now();
+          const dist = Math.hypot(t.clientX - this.lastTapLoc.x, t.clientY - this.lastTapLoc.y);
+          
+          // If tap is close (< 30px) and fast (< 400ms)
+          if (now - this.lastTapTime < 400 && dist < 30) {
+              this.rageTapCounter++;
+          } else {
+              this.rageTapCounter = 0;
+          }
+
+          this.lastTapTime = now;
+          this.lastTapLoc = { x: t.clientX, y: t.clientY };
+          this.metrics.rageTaps = this.rageTapCounter;
+      }
+  }
+
+  private pushHistory(x: number, y: number, force: number = 0) {
     const now = Date.now();
-    this.history.push({ x: e.clientX, y: e.clientY, t: now });
+    this.history.push({ x, y, t: now, force });
     if (this.history.length > (this.config.historySize || 20)) {
       this.history.shift();
     }
@@ -120,7 +181,9 @@ export class Psyche {
   private handleClick(e: MouseEvent) {
     this.handleInteraction(); 
     
-    const target = e.target as Element;
+    // Use deep element detection for clicks too
+    const target = this.getDeepElement(e.clientX, e.clientY);
+
     this.metrics.lastClick = {
       x: e.clientX,
       y: e.clientY,
@@ -156,13 +219,14 @@ export class Psyche {
     const pauseDuration = now - this.lastMouseMoveTime;
 
     // --- AI Learning Step ---
+    // Update baseline if moving and not just scrolling passively
     if (velocity > 0.01 && this.config.useAI) {
       this.updateBaseline(velocity, entropy, jerk);
     }
     
     const isLearning = this.config.useAI ? this.stats.count < (this.config.learningSamples || 30) : false;
 
-    // --- Object Detection ---
+    // --- Object Detection with Shadow Tracking ---
     let currentElement: PsycheElement | null = null;
     let predictedElement: PsycheElement | null = null;
     
@@ -171,16 +235,19 @@ export class Psyche {
 
     if (this.history.length > 0) {
       lastPoint = this.history[this.history.length - 1];
-      const el = document.elementFromPoint(lastPoint.x, lastPoint.y);
+      
+      // Use Deep Element from Point to pierce Shadow DOMs
+      const el = this.getDeepElement(lastPoint.x, lastPoint.y);
       if (el) currentElement = this.parseElement(el);
 
+      // Only predict if moving fast enough
       if (velocity > 0.5) { 
         const predictionTime = 150; 
         const predX = lastPoint.x + (vx * predictionTime);
         const predY = lastPoint.y + (vy * predictionTime);
         
         if (predX >= 0 && predX <= window.innerWidth && predY >= 0 && predY <= window.innerHeight) {
-          const predEl = document.elementFromPoint(predX, predY);
+          const predEl = this.getDeepElement(predX, predY);
           if (predEl) predictedElement = this.parseElement(predEl);
         }
       }
@@ -212,6 +279,7 @@ export class Psyche {
     const zScoreEntropy = (entropy - this.metrics.baseline.avgEntropy) / (entStdDev || 0.1);
 
     this.metrics = {
+      ...this.metrics, // Keep inputType, touchPressure, rageTaps updated by handlers
       velocity,
       entropy,
       jerk,
@@ -238,8 +306,124 @@ export class Psyche {
       }
     }
 
-    this.emit('metrics', this.metrics);
+    // Emit sanitized metrics
+    this.emit('metrics', this.getPublicMetrics());
     this.determineState();
+  }
+
+  // --- Dynamic Element Prediction (Shadow Tracking) ---
+  // Recursively drills into Shadow Roots
+  private getDeepElement(x: number, y: number): Element | null {
+    let el = document.elementFromPoint(x, y);
+    
+    // Walk down the shadow tree
+    while (el && el.shadowRoot && 'elementFromPoint' in el.shadowRoot) {
+      const shadowEl = (el.shadowRoot as any).elementFromPoint(x, y);
+      if (!shadowEl || shadowEl === el) break;
+      el = shadowEl;
+    }
+    return el;
+  }
+
+  private parseElement(el: Element): PsycheElement {
+    // 1. Shadow Tracking (Business Logic Focus)
+    // If we hit a decorative element (span, div, svg) that isn't interactive,
+    // walk UP the tree to find the nearest meaningful parent (button, link, input).
+    let target = el;
+    const interactiveTags = ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'];
+    const maxDepth = 4;
+    let depth = 0;
+
+    // Check if the element itself is likely decorative
+    const isLikelyDecorative = (e: Element) => {
+       const tag = e.tagName;
+       return (tag === 'SPAN' || tag === 'DIV' || tag === 'SVG' || tag === 'PATH' || tag === 'I');
+    }
+
+    // Climb up if decorative and no direct handler
+    while (
+       target && 
+       target.parentElement && 
+       depth < maxDepth && 
+       isLikelyDecorative(target) && 
+       !target.hasAttribute('onclick') &&
+       !interactiveTags.includes(target.tagName)
+    ) {
+        target = target.parentElement;
+        depth++;
+    }
+
+    // Determine Significance based on Config Selectors
+    let isSignificant = false;
+    if (this.config.significantSelectors) {
+      isSignificant = this.config.significantSelectors.some(selector => {
+         try { return target.matches(selector); } catch { return false; }
+      });
+    }
+
+    // Check interaction status on final target
+    const style = window.getComputedStyle(target);
+    const isInteractive = interactiveTags.includes(target.tagName) || 
+                          target.hasAttribute('onclick') || 
+                          style.cursor === 'pointer' ||
+                          isSignificant;
+
+    // Detect if inside Shadow DOM
+    const isInShadow = (target.getRootNode() instanceof ShadowRoot);
+
+    return {
+      tag: target.tagName.toLowerCase(),
+      id: target.id,
+      className: typeof target.className === 'string' ? target.className.split(' ')[0] : '', 
+      interactive: isInteractive,
+      isSignificant,
+      isInShadow
+    };
+  }
+
+  // --- Privacy / Data Sanitization ---
+  // Returns a safe copy of metrics for public consumption
+  private getPublicMetrics(): PsycheMetrics {
+    if (!this.config.privacyMode) {
+      return { ...this.metrics };
+    }
+
+    // Anonymize for GDPR/CCPA
+    const safeMetrics = { ...this.metrics };
+    
+    // Redact text content
+    if (safeMetrics.currentSelection) {
+      safeMetrics.currentSelection = {
+        ...safeMetrics.currentSelection,
+        text: '***REDACTED (Privacy Mode)***'
+      };
+    }
+
+    // Redact specific ID and Classes (preserve Tag Name & Significance for analytics)
+    const redactEl = (el: PsycheElement) => ({
+        ...el,
+        id: 'REDACTED',
+        className: 'REDACTED'
+    });
+
+    if (safeMetrics.currentElement) {
+        safeMetrics.currentElement = redactEl(safeMetrics.currentElement);
+    }
+    
+    if (safeMetrics.predictedElement) {
+        safeMetrics.predictedElement = redactEl(safeMetrics.predictedElement);
+    }
+
+    // Redact precise coordinates
+    if (safeMetrics.lastClick) {
+        safeMetrics.lastClick = {
+            ...safeMetrics.lastClick,
+            x: -1, // Sentinel value for "Redacted"
+            y: -1
+        };
+    }
+
+    return safeMetrics;
   }
 
   private detectIntentions(
@@ -251,30 +435,24 @@ export class Psyche {
     dt: number
   ): MicroIntention {
     
-    // 1. EXIT INTENT
-    // Logic: Cursor near top (0-60px), moving UP (vy < 0) fast enough
-    if (mouseY < 60 && vy < -0.5 && velocity > 0.5) {
+    // 1. EXIT INTENT (Mouse Only usually, but works for fast scrolls up)
+    if (this.metrics.inputType === InputType.MOUSE && mouseY < 60 && vy < -0.5 && velocity > 0.5) {
       return MicroIntention.EXIT;
     }
 
     // 2. HESITATION / DUDA
-    // Logic: Cursor is over an interactive element for > 2000ms (accumulative)
     if (currentElement && currentElement.interactive) {
       const sig = `${currentElement.tag}-${currentElement.id || currentElement.className}`;
-      
       if (sig === this.lastFocusedSignature) {
         this.focusTimer += dt;
-        // Threshold: 2 seconds of "orbiting" or hovering
         if (this.focusTimer > 2000) {
           return MicroIntention.HESITATION;
         }
       } else {
-        // Changed element, reset timer
         this.lastFocusedSignature = sig;
         this.focusTimer = 0;
       }
     } else {
-      // Not on interactive element, reset
       this.lastFocusedSignature = '';
       this.focusTimer = 0;
     }
@@ -332,24 +510,12 @@ export class Psyche {
     return { velocity, entropy, jerk, vx, vy };
   }
 
-  private parseElement(el: Element): PsycheElement {
-    const interactiveTags = ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'];
-    const isInteractive = interactiveTags.includes(el.tagName) || el.hasAttribute('onclick') || window.getComputedStyle(el).cursor === 'pointer';
-    
-    return {
-      tag: el.tagName.toLowerCase(),
-      id: el.id,
-      className: typeof el.className === 'string' ? el.className.split(' ')[0] : '', 
-      interactive: isInteractive
-    };
-  }
-
   private determineState() {
-    const { velocity, entropy, jerk, scrollSpeed, interactionRate, selectionActivity, zScoreVelocity, zScoreEntropy, isLearning } = this.metrics;
+    const { velocity, entropy, jerk, scrollSpeed, interactionRate, selectionActivity, zScoreVelocity, zScoreEntropy, isLearning, rageTaps } = this.metrics;
     let nextState = UserState.EXPLORING;
 
     if (this.config.useAI && !isLearning) {
-      if (jerk > 0.5 || interactionRate > 8) {
+      if (rageTaps > 2 || jerk > 0.5 || interactionRate > 8) {
         nextState = UserState.FRUSTRATED; 
       } else if (scrollSpeed > 0.5 && velocity < 0.2) {
         nextState = UserState.READING;
@@ -362,7 +528,7 @@ export class Psyche {
       }
 
     } else {
-      if (jerk > 0.5 || interactionRate > 8) {
+      if (rageTaps > 2 || jerk > 0.5 || interactionRate > 8) {
         nextState = UserState.FRUSTRATED;
       } else if (scrollSpeed > 0.5 && velocity < 0.2) {
         nextState = UserState.READING;
@@ -400,7 +566,7 @@ export class Psyche {
   }
 
   public getMetrics(): PsycheMetrics {
-    return { ...this.metrics };
+    return this.getPublicMetrics();
   }
 
   public getState(): UserState {

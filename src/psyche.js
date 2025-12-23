@@ -17,10 +17,18 @@ export default class Psyche {
     this.focusTimer = 0;
     this.lastFocusedSignature = '';
 
+    // Touch tracking
+    this.lastTapTime = 0;
+    this.lastTapLoc = { x: 0, y: 0 };
+    this.rageTapCounter = 0;
+
     this.metrics = { 
+      inputType: 'MOUSE',
       velocity: 0, 
       entropy: 0, 
       jerk: 0,
+      touchPressure: 0,
+      rageTaps: 0,
       currentElement: null,
       predictedElement: null,
       lastClick: null,
@@ -40,6 +48,8 @@ export default class Psyche {
       historySize: 20,
       useAI: true,
       learningSamples: 30,
+      privacyMode: false,
+      significantSelectors: ['button', 'a', '.cta', '[role="button"]'],
       ...config
     };
 
@@ -49,24 +59,51 @@ export default class Psyche {
   _init() {
     if (typeof window === 'undefined') return;
 
+    // Mouse
     window.addEventListener('mousemove', e => {
-      this.history.push({ x: e.clientX, y: e.clientY, t: Date.now() });
-      if (this.history.length > this.config.historySize) {
-        this.history.shift();
-      }
+      this.metrics.inputType = 'MOUSE';
+      this.metrics.touchPressure = 0;
+      this._pushHistory(e.clientX, e.clientY);
     });
 
+    // Touch
+    window.addEventListener('touchmove', e => {
+      if (e.touches.length > 0) {
+        this.metrics.inputType = 'TOUCH';
+        const t = e.touches[0];
+        this.metrics.touchPressure = t.force || 0.5;
+        this._pushHistory(t.clientX, t.clientY, t.force);
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchstart', e => {
+      this.metrics.inputType = 'TOUCH';
+      if (e.touches.length > 0) {
+         const t = e.touches[0];
+         // Rage Taps
+         const now = Date.now();
+         const dist = Math.hypot(t.clientX - this.lastTapLoc.x, t.clientY - this.lastTapLoc.y);
+         if (now - this.lastTapTime < 400 && dist < 30) {
+            this.rageTapCounter++;
+         } else {
+            this.rageTapCounter = 0;
+         }
+         this.lastTapTime = now;
+         this.lastTapLoc = {x: t.clientX, y: t.clientY};
+         this.metrics.rageTaps = this.rageTapCounter;
+      }
+    }, { passive: true });
+
     window.addEventListener('click', e => {
-       const target = e.target;
+       const target = this._getDeepElement(e.clientX, e.clientY);
        this.metrics.lastClick = {
          x: e.clientX,
          y: e.clientY,
          t: Date.now(),
          element: target ? this._parseElement(target) : null
        };
-       // Reset timer on click
        this.focusTimer = 0;
-       this._emit('metrics', this.metrics);
+       this._emit('metrics', this._getPublicMetrics());
     });
 
     document.addEventListener('selectionchange', () => {
@@ -84,6 +121,13 @@ export default class Psyche {
     });
 
     this._timer = setInterval(() => this._analyze(), this.config.interval);
+  }
+
+  _pushHistory(x, y, force = 0) {
+    this.history.push({ x, y, t: Date.now(), force });
+    if (this.history.length > this.config.historySize) {
+      this.history.shift();
+    }
   }
 
   _analyze() {
@@ -120,29 +164,24 @@ export default class Psyche {
     let currentElement = null;
     let predictedElement = null;
 
-    // 1. Current
-    const el = document.elementFromPoint(last.x, last.y);
+    const el = this._getDeepElement(last.x, last.y);
     if (el) currentElement = this._parseElement(el);
 
-    // 2. Prediction (150ms lookahead)
     if (velocity > 0.5) {
       const predX = last.x + (vx * 150);
       const predY = last.y + (vy * 150);
       if (predX >= 0 && predX <= window.innerWidth && predY >= 0 && predY <= window.innerHeight) {
-        const predEl = document.elementFromPoint(predX, predY);
+        const predEl = this._getDeepElement(predX, predY);
         if (predEl) predictedElement = this._parseElement(predEl);
       }
     }
 
     // Micro-Intentions
     let intention = 'NONE';
-    
-    // Exit Intent: Top area + moving up + fast
-    if (last.y < 60 && vy < -0.5 && velocity > 0.5) {
+    if (this.metrics.inputType === 'MOUSE' && last.y < 60 && vy < -0.5 && velocity > 0.5) {
         intention = 'EXIT_INTENT';
     }
 
-    // Hesitation
     if (currentElement && currentElement.interactive) {
         const sig = `${currentElement.tag}-${currentElement.id || currentElement.className}`;
         if (sig === this.lastFocusedSignature) {
@@ -174,7 +213,28 @@ export default class Psyche {
     
     if (intention !== 'NONE') this._emit('intention', intention);
     this._updateState();
-    this._emit('metrics', this.metrics);
+    this._emit('metrics', this._getPublicMetrics());
+  }
+
+  _getDeepElement(x, y) {
+      let el = document.elementFromPoint(x, y);
+      while (el && el.shadowRoot && el.shadowRoot.elementFromPoint) {
+          const shadowEl = el.shadowRoot.elementFromPoint(x, y);
+          if (!shadowEl || shadowEl === el) break;
+          el = shadowEl;
+      }
+      return el;
+  }
+
+  _getPublicMetrics() {
+     if (!this.config.privacyMode) return { ...this.metrics };
+     
+     const m = { ...this.metrics };
+     if (m.currentSelection) m.currentSelection = { ...m.currentSelection, text: '***REDACTED***' };
+     if (m.currentElement) m.currentElement = { ...m.currentElement, id: 'REDACTED', className: 'REDACTED' };
+     if (m.predictedElement) m.predictedElement = { ...m.predictedElement, id: 'REDACTED', className: 'REDACTED' };
+     if (m.lastClick) m.lastClick = { ...m.lastClick, x: -1, y: -1 };
+     return m;
   }
 
   _updateBaseline(v, e, j) {
@@ -195,24 +255,57 @@ export default class Psyche {
   }
 
   _parseElement(el) {
+    let target = el;
     const interactiveTags = ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'];
-    const style = window.getComputedStyle(el);
-    const isInteractive = interactiveTags.includes(el.tagName) || el.hasAttribute('onclick') || style.cursor === 'pointer';
-    
+    const maxDepth = 4;
+    let depth = 0;
+
+    const isLikelyDecorative = (e) => {
+        const tag = e.tagName;
+        return (tag === 'SPAN' || tag === 'DIV' || tag === 'SVG' || tag === 'PATH' || tag === 'I');
+    }
+
+    while (
+       target && 
+       target.parentElement && 
+       depth < maxDepth && 
+       isLikelyDecorative(target) && 
+       !target.hasAttribute('onclick') &&
+       !interactiveTags.includes(target.tagName)
+    ) {
+        target = target.parentElement;
+        depth++;
+    }
+
+    let isSignificant = false;
+    if (this.config.significantSelectors) {
+      isSignificant = this.config.significantSelectors.some(selector => {
+         try { return target.matches(selector); } catch { return false; }
+      });
+    }
+
+    const style = window.getComputedStyle(target);
+    const isInteractive = interactiveTags.includes(target.tagName) || target.hasAttribute('onclick') || style.cursor === 'pointer' || isSignificant;
+    const isInShadow = (target.getRootNode() instanceof ShadowRoot);
+
     return {
-      tag: el.tagName.toLowerCase(),
-      id: el.id || null,
-      className: typeof el.className === 'string' ? el.className.split(' ')[0] : null,
-      interactive: isInteractive
+      tag: target.tagName.toLowerCase(),
+      id: target.id || null,
+      className: typeof target.className === 'string' ? target.className.split(' ')[0] : null,
+      interactive: isInteractive,
+      isSignificant,
+      isInShadow
     };
   }
 
   _updateState() {
     let next = STATES.EXPLORADOR;
-    const { velocity, entropy, zScoreVelocity, zScoreEntropy, isLearning } = this.metrics;
+    const { velocity, entropy, zScoreVelocity, zScoreEntropy, isLearning, rageTaps, jerk } = this.metrics;
 
     if (this.config.useAI && !isLearning) {
-        if (zScoreVelocity > 1.5 && zScoreEntropy < 0.5) {
+        if (rageTaps > 2 || jerk > 0.5) {
+            next = STATES.FRUSTRATED; // Touch rage handled here
+        } else if (zScoreVelocity > 1.5 && zScoreEntropy < 0.5) {
             next = STATES.URGENTE;
         } else if (zScoreEntropy > 1.5) {
             next = STATES.INDECISO;
@@ -220,8 +313,8 @@ export default class Psyche {
             next = STATES.CALMADO;
         }
     } else {
-        // Fallback static thresholds
-        if (velocity > 1.8 && entropy < 0.3) {
+        if (rageTaps > 2) next = STATES.FRUSTRATED;
+        else if (velocity > 1.8 && entropy < 0.3) {
             next = STATES.URGENTE;
         } else if (entropy > 0.8) {
             next = STATES.INDECISO;
@@ -246,7 +339,7 @@ export default class Psyche {
   }
 
   getMetrics() {
-    return this.metrics;
+    return this._getPublicMetrics();
   }
 
   getState() {

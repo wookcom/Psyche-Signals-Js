@@ -9,13 +9,14 @@ Psyche Signals es una biblioteca de **computación afectiva** ligera (< 3kb) que
 
 ## 🚀 Características
 
-- **Micro-Intenciones (NUEVO)**:
-  - **Exit Intent Vectorial**: Detecta la intención de abandono analizando la velocidad y aceleración hacia la barra de direcciones, prediciendo la salida antes de que el cursor salga del viewport.
-  - **Checkout Hesitation (Duda)**: Identifica cuando un usuario "orbita" o duda sobre un elemento interactivo (como un botón de compra) durante más de 2 segundos.
-- **Micro-AI Adaptativa**: Algoritmo de aprendizaje estadístico que calibra los umbrales para cada usuario.
-- **Predicción de Objetivos**: Predice qué elemento interactivo va a pulsar el usuario hasta 150ms antes.
-- **Puntos de Contacto & Selección**: Rastreo de clicks y selección de texto en tiempo real.
-- **Cero Dependencias**: Matemática pura y listeners del DOM.
+- **Shadow Tracking (NUEVO v3.5)**: 
+  - Predicción profunda de elementos dentro de **Shadow DOM** (Web Components).
+  - Ignora automáticamente elementos decorativos (`<span>`, `<div>`) para enfocarse en el componente funcional padre.
+  - Permite definir **Selectores Significativos** para priorizar lógica de negocio.
+- **Touch Signals (v3.3)**: Soporte táctil con detección de presión y Rage Taps.
+- **Privacy-First Mode (v3.4)**: Cumplimiento GDPR/CCPA mediante "Anonimización Local".
+- **Micro-Intenciones**: Detección vectorial de abandono (Exit Intent) y Duda (Hesitation).
+- **Micro-AI Adaptativa**: Calibración en tiempo real de los umbrales de comportamiento por usuario.
 
 ---
 
@@ -36,19 +37,57 @@ npm install psyche-signals
 
 ---
 
-## 🧠 Detección de Micro-Intenciones
+## 🔒 Privacidad y Cumplimiento
 
-Psyche v3.2 introduce un motor de detección específico para reglas de negocio:
+Para entornos empresariales o estrictos (GDPR), activa el modo de privacidad.
 
-### 1. Exit Intent (Intención de Salida)
-A diferencia de librerías tradicionales que solo escuchan `mouseleave`, Psyche analiza vectores.
-- **Disparador**: Cursor en el 10% superior de la pantalla (`y < 60px`) + Velocidad vertical negativa (`vy < -0.5`) + Alta velocidad absoluta.
-- **Uso**: Mostrar modales de retención *antes* de que el usuario alcance la barra de pestañas.
+```javascript
+const engine = new Psyche({
+  useAI: true,
+  privacyMode: true // 🛡️ Activa la anonimización local
+});
+```
 
-### 2. Hesitation (Duda)
-Detecta indecisión crítica en puntos de conversión.
-- **Disparador**: El cursor permanece sobre el mismo elemento interactivo (`BUTTON`, `INPUT`, `A`) por más de **2000ms** sin hacer clic.
-- **Uso**: Si ocurre en un botón de "Pagar", disparar un tooltip de ayuda o un descuento.
+---
+
+## 🕸️ Shadow Tracking & Elementos Dinámicos
+
+Psyche ahora "perfora" el Shadow DOM y filtra el ruido visual para predecir interacciones con componentes reales.
+
+```javascript
+const engine = new Psyche({
+  // Define qué elementos son vitales para tu negocio
+  significantSelectors: ['.add-to-cart', '#signup-btn', 'stripe-element'],
+  interval: 50
+});
+
+engine.on('metrics', (data) => {
+  const el = data.predictedElement;
+  
+  if (el && el.isSignificant) {
+     console.log("🔥 Alta probabilidad de conversión en:", el.tag);
+  }
+  
+  if (el && el.isInShadow) {
+     console.log("Elemento detectado dentro de un Web Component");
+  }
+});
+```
+
+---
+
+## 🧠 Detección de Micro-Intenciones & Touch
+
+### 1. Rage Taps (Móvil)
+Detecta frustración cuando el usuario golpea la pantalla repetidamente.
+- **Disparador**: > 3 toques en < 400ms en un radio de 30px.
+- **Estado Resultante**: `FRUSTRADO`.
+
+### 2. Exit Intent (Escritorio)
+- **Disparador**: Cursor en el 10% superior + velocidad vertical negativa + alta aceleración.
+
+### 3. Hesitation (Duda)
+- **Disparador**: Cursor o foco táctil sobre un elemento interactivo por > 2000ms sin acción.
 
 ---
 
@@ -59,32 +98,12 @@ import Psyche from 'psyche-signals';
 
 const engine = new Psyche({ useAI: true });
 
-// Escuchar Micro-Intenciones
-engine.on('intention', (intention) => {
-  if (intention === 'EXIT_INTENT') {
-     console.log("⚠️ El usuario va a cerrar la pestaña!");
-     showRetentionModal();
-  }
-  
-  if (intention === 'HESITATION') {
-     console.log("🤔 El usuario duda sobre un elemento.");
-     offerHelp();
+engine.on('stateChange', (state) => {
+  if (state === 'FRUSTRADO') {
+     console.log("Detectados Rage Taps o Rage Clicks - Ofreciendo ayuda.");
   }
 });
 ```
-
----
-
-## 📚 Referencia API
-
-### `new Psyche(config)`
-- `config.useAI` (boolean): Activa el aprendizaje adaptativo.
-- `config.interval` (number): Intervalo de análisis (ms).
-
-### Métodos
-- `.on(event, callback)`: Suscribirse a eventos.
-  - Eventos: `'metrics'`, `'stateChange'`, `'intention'`.
-- `.getMetrics()`: Retorna métricas incluyendo `currentIntention` y `focusTime`.
 
 ---
 
