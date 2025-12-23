@@ -1,7 +1,7 @@
 
 import React from 'react';
-import { PsycheMetrics, UserState, PsycheElement } from '../types';
-import { TestTube, MousePointerClick, MoveVertical, Type, Clock, Scan, Target, MapPin, TextCursor } from 'lucide-react';
+import { PsycheMetrics, UserState, PsycheElement, MicroIntention } from '../types';
+import { TestTube, MousePointerClick, MoveVertical, Type, Clock, Scan, Target, MapPin, TextCursor, Brain, LogOut, HelpCircle } from 'lucide-react';
 
 interface NeuralLabProps {
   metrics: PsycheMetrics;
@@ -46,6 +46,25 @@ const NeuralLab: React.FC<NeuralLabProps> = ({ metrics, currentState }) => {
   if (currentState === UserState.UNDECIDED) badgeColorClass = "bg-pink-500/10 text-pink-400 border-pink-500/20";
   if (currentState === UserState.EXPLORING) badgeColorClass = "bg-blue-500/10 text-blue-400 border-blue-500/20";
   if (currentState === UserState.READING) badgeColorClass = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+
+  // Micro Intention Badge
+  let intentionBadge = null;
+  if (metrics.currentIntention === MicroIntention.EXIT) {
+    intentionBadge = (
+        <div className="absolute top-6 right-6 flex items-center gap-2 px-3 py-1.5 bg-red-500 text-white rounded-lg shadow-xl animate-bounce">
+            <LogOut className="w-4 h-4" />
+            <span className="text-xs font-bold uppercase tracking-wider">Exit Intent</span>
+        </div>
+    );
+  } else if (metrics.currentIntention === MicroIntention.HESITATION) {
+     intentionBadge = (
+        <div className="absolute top-6 right-6 flex items-center gap-2 px-3 py-1.5 bg-yellow-500 text-black rounded-lg shadow-xl animate-pulse">
+            <HelpCircle className="w-4 h-4" />
+            <span className="text-xs font-bold uppercase tracking-wider">Duda / Hesitation</span>
+        </div>
+    );
+  }
+
 
   // Helper to render element badge
   const ElementBadge = ({ el, label, icon: Icon, color, coordinates }: { el: PsycheElement | null | undefined, label: string, icon: any, color: string, coordinates?: {x: number, y: number} }) => {
@@ -92,20 +111,43 @@ const NeuralLab: React.FC<NeuralLabProps> = ({ metrics, currentState }) => {
           {/* Scanner Effect */}
           <div className="absolute inset-x-0 h-1/2 bg-gradient-to-b from-transparent via-blue-500/10 to-transparent pointer-events-none scanner-animation opacity-50"></div>
           
+          {/* Micro-Intention Alert Badge */}
+          {intentionBadge}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12 relative z-10">
             
             {/* Column 1: Movement Metrics */}
             <div className="space-y-6">
-              <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4 border-b border-slate-800/50 pb-2">Cinemática</h4>
+              <div className="flex items-center justify-between border-b border-slate-800/50 pb-2 mb-4">
+                 <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Cinemática</h4>
+                 {/* AI Status Indicator */}
+                 <div className="flex items-center gap-2">
+                    <div className={`w-1.5 h-1.5 rounded-full ${metrics.isLearning ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+                    <span className="text-[9px] font-bold text-slate-500 uppercase">
+                        {metrics.isLearning ? 'AI: Calibrando...' : 'AI: Activo'}
+                    </span>
+                 </div>
+              </div>
               
               {/* Velocity */}
               <div className="space-y-2">
                 <div className="flex justify-between text-[10px] font-bold uppercase text-slate-400">
                   <span>Velocidad Cursor</span>
-                  <span className="text-blue-400 font-mono">{metrics.velocity.toFixed(2)}</span>
+                  <div className="flex gap-2 text-right">
+                     {!metrics.isLearning && <span className="text-[9px] text-slate-600">Z: {metrics.zScoreVelocity.toFixed(1)}σ</span>}
+                     <span className="text-blue-400 font-mono">{metrics.velocity.toFixed(2)}</span>
+                  </div>
                 </div>
-                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500 metric-transition" style={{ width: `${velPercent}%` }}></div>
+                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden relative">
+                   {/* Baseline Marker (Only if not learning) */}
+                   {!metrics.isLearning && (
+                       <div 
+                         className="absolute top-0 bottom-0 w-0.5 bg-white/30 z-10" 
+                         style={{ left: `${Math.min(metrics.baseline.avgVelocity * 40, 100)}%` }}
+                         title="Baseline promedio"
+                       ></div>
+                   )}
+                   <div className="h-full bg-blue-500 metric-transition" style={{ width: `${velPercent}%` }}></div>
                 </div>
               </div>
 
@@ -113,9 +155,19 @@ const NeuralLab: React.FC<NeuralLabProps> = ({ metrics, currentState }) => {
               <div className="space-y-2">
                 <div className="flex justify-between text-[10px] font-bold uppercase text-slate-400">
                   <span>Entropía (Caos)</span>
-                  <span className="text-pink-400 font-mono">{Math.round(entropyPercent)}%</span>
+                  <div className="flex gap-2 text-right">
+                     {!metrics.isLearning && <span className="text-[9px] text-slate-600">Z: {metrics.zScoreEntropy.toFixed(1)}σ</span>}
+                     <span className="text-pink-400 font-mono">{Math.round(entropyPercent)}%</span>
+                  </div>
                 </div>
-                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden relative">
+                  {!metrics.isLearning && (
+                       <div 
+                         className="absolute top-0 bottom-0 w-0.5 bg-white/30 z-10" 
+                         style={{ left: `${Math.min(metrics.baseline.avgEntropy * 60, 100)}%` }}
+                         title="Baseline promedio"
+                       ></div>
+                   )}
                   <div className="h-full bg-pink-500 metric-transition" style={{ width: `${entropyPercent}%` }}></div>
                 </div>
               </div>
@@ -208,10 +260,10 @@ const NeuralLab: React.FC<NeuralLabProps> = ({ metrics, currentState }) => {
                     <input 
                       id="test-input"
                       type="text" 
-                      placeholder="Selecciona texto aquí para probar..." 
+                      placeholder="Calibra la IA moviendo el cursor..." 
                       className="w-full bg-slate-900/50 border border-slate-700 text-xs text-slate-300 rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 transition-colors"
                     />
-                    <Type className="absolute right-3 top-3 w-4 h-4 text-slate-600" />
+                    <Brain className={`absolute right-3 top-3 w-4 h-4 ${metrics.isLearning ? 'text-yellow-500 animate-pulse' : 'text-green-500'}`} />
                  </div>
               </div>
 
@@ -223,7 +275,7 @@ const NeuralLab: React.FC<NeuralLabProps> = ({ metrics, currentState }) => {
               {currentState}
             </div>
             <p className="text-[10px] text-slate-600 mt-4 uppercase tracking-wider font-semibold">
-              Estado Cognitivo Detectado
+              Estado Cognitivo (Detectado por IA)
             </p>
           </div>
         </div>

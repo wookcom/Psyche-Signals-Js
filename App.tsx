@@ -3,7 +3,7 @@ import Sidebar from './components/Sidebar';
 import NeuralLab from './components/NeuralLab';
 import CodeBlock from './components/CodeBlock';
 import { Psyche } from './lib/Psyche'; // Import the Core Engine
-import { PsycheMetrics, UserState } from './types';
+import { PsycheMetrics, UserState, MicroIntention } from './types';
 import { Zap, Shuffle, Compass } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -21,7 +21,13 @@ const App: React.FC = () => {
     currentElement: null,
     predictedElement: null,
     lastClick: null,
-    currentSelection: null
+    currentSelection: null,
+    baseline: { avgVelocity: 0, avgEntropy: 0, avgJerk: 0, samples: 0 },
+    isLearning: true,
+    zScoreVelocity: 0,
+    zScoreEntropy: 0,
+    currentIntention: MicroIntention.NONE,
+    focusTime: 0
   });
   const [userState, setUserState] = useState<UserState>(UserState.STANDBY);
   
@@ -34,12 +40,15 @@ const App: React.FC = () => {
     // We pass the mainRef as the scrolling element because in this layout, 'main' scrolls, not 'window'
     const engine = new Psyche({
       scrollElement: mainRef.current || window,
-      debug: false
+      debug: true, // Enable debug to verify engine is running
+      useAI: true, // Enable Neural Learning
+      interval: 50 // Faster updates for smoother UI (50ms)
     });
 
     // Subscribe to Engine Events
     engine.on('metrics', (data: PsycheMetrics) => {
-      setMetrics(data);
+      // Vital: Spread object to ensure React detects a new reference and triggers re-render
+      setMetrics({ ...data });
     });
 
     engine.on('stateChange', (state: UserState) => {
@@ -96,7 +105,7 @@ const App: React.FC = () => {
               Señales reales <br/><span className="text-blue-500">UX adaptativo.</span>
             </h2>
             <p className="text-xl text-slate-400 leading-relaxed max-w-2xl">
-              <strong className="text-slate-200">Psyche Signals</strong> es la biblioteca de computación afectiva que permite a tu web entender la intención del usuario. Analiza señales de comportamiento en tiempo real, <strong>scroll y ritmo de escritura</strong> para adaptar la UX instantáneamente.
+              <strong className="text-slate-200">Psyche Signals</strong> es la biblioteca de computación afectiva que permite a tu web entender la intención del usuario. Analiza señales de comportamiento en tiempo real, usa <strong>Micro-AI</strong> para aprender patrones individuales y adapta la UX instantáneamente.
             </p>
             
             <div className="flex flex-wrap gap-4 mt-10">
@@ -152,9 +161,9 @@ const App: React.FC = () => {
                 </p>
               </div>
               <div className="p-8 rounded-3xl bg-slate-900/50 border border-slate-800 hover:border-slate-700 transition-colors">
-                <h4 className="text-xl font-bold mb-4 text-pink-400">Entropía Angular</h4>
+                <h4 className="text-xl font-bold mb-4 text-pink-400">Motor Adaptativo (Micro-AI)</h4>
                 <p className="text-sm text-slate-400 leading-relaxed">
-                  Mide la "caoticidad" del movimiento. Una trayectoria errática es un indicador matemático directo de <strong>indecisión cognitiva</strong> o búsqueda visual infructuosa.
+                  En lugar de umbrales fijos, Psyche aprende el comportamiento base de cada usuario. Utiliza <strong>Puntuaciones Z</strong> en tiempo real para detectar anomalías comportamentales específicas para esa persona.
                 </p>
               </div>
             </div>
@@ -220,20 +229,19 @@ const App: React.FC = () => {
               code={`import { Psyche } from 'psyche-signals';
 
 const engine = new Psyche({
-  interval: 100,       // Ciclo de análisis en ms
-  historySize: 20,     // Puntos de rastreo a mantener
-  scrollElement: window, // Elemento a monitorear (window o div)
+  interval: 100,
+  historySize: 20,
+  useAI: true,         // Activar aprendizaje automático
+  learningSamples: 50, // Muestras para calibración inicial
   debug: false         
 });
 
-// Suscribirse a métricas en tiempo real (60fps)
+// Métricas AI expuestas
 engine.on('metrics', (data) => {
-  console.log(data.velocity, data.interactionRate);
-});
-
-// Suscribirse a cambios de estado cognitivo
-engine.on('stateChange', (state) => {
-  if (state === 'FRUSTRADO') showHelpModal();
+  if (!data.isLearning) {
+     console.log('User Baseline Velocity:', data.baseline.avgVelocity);
+     console.log('Deviations from norm:', data.zScoreVelocity);
+  }
 });`}
               className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl mb-12"
               textClassName="text-sm leading-relaxed text-slate-300"
